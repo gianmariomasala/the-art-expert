@@ -1,65 +1,110 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import { ArtworkForm } from "@/components/ArtworkForm";
+import { ConceptDisplay, Concept } from "@/components/ConceptDisplay";
+import { ApiKeyInput } from "@/components/ApiKeyInput";
+import { motion } from "framer-motion";
 
 export default function Home() {
+  const [title, setTitle] = useState("");
+  const [artist, setArtist] = useState("");
+  const [concepts, setConcepts] = useState<Concept[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState("");
+
+  const handleAnalyze = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+
+    setLoading(true);
+    setError("");
+    setConcepts([]);
+
+    try {
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title, artist, apiKey }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Errore durante l'analisi");
+      }
+
+      setConcepts(data.concepts);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="min-h-screen flex flex-col items-center px-4 py-20 bg-dot-black/[0.2] relative overflow-hidden">
+      {/* Background Decor */}
+      <div className="fixed inset-0 pointer-events-none opacity-40">
+        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-secondary/30 rounded-full blur-3xl" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-accent/5 rounded-full blur-3xl" />
+      </div>
+
+      <div className="z-10 w-full max-w-5xl flex flex-col items-center">
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7 }}
+          className="text-center mb-12 space-y-4"
+        >
+          <div className="inline-block px-3 py-1 mb-2 text-xs font-semibold tracking-widest text-accent uppercase border border-accent/20 rounded-full bg-accent/5">
+            Art Expert Intelligence
+          </div>
+          <h1 className="text-5xl md:text-7xl font-serif text-primary tracking-tight">
+            L'Esperto d'Arte
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+            Scopri l'essenza invisibile delle opere. Inserisci un titolo e lascia che l'esperto riveli i concetti chiave nascosti.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="w-full flex justify-center mb-16"
+        >
+          <ArtworkForm
+            title={title}
+            setTitle={setTitle}
+            artist={artist}
+            setArtist={setArtist}
+            onSubmit={handleAnalyze}
+            loading={loading}
+          />
+        </motion.div>
+
+        {error && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-destructive mb-8 bg-destructive/10 px-4 py-2 rounded-md"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+            {error}
+          </motion.div>
+        )}
+
+        <ConceptDisplay
+          concepts={concepts}
+          title={title}
+          artist={artist}
+        />
+      </div>
+
+      <ApiKeyInput apiKey={apiKey} setApiKey={setApiKey} />
+    </main>
   );
 }
