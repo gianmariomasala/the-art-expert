@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { FileDown, Loader2 } from 'lucide-react';
-import { exportConceptsToPdf } from '@/lib/pdf-export';
+import { useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Button } from "./ui/button";
+import { FileDown, Loader2 } from "lucide-react";
+import { exportConceptsToPdf } from "@/lib/pdf-export";
 
 export interface Concept {
       title: string;
@@ -14,20 +14,38 @@ interface ConceptDisplayProps {
       concepts: Concept[];
       title: string;
       artist: string;
+      year?: string | null; // opzionale: se vuoi passarlo
 }
 
-export function ConceptDisplay({ concepts, title, artist }: ConceptDisplayProps) {
+export function ConceptDisplay({ concepts, title, artist, year = null }: ConceptDisplayProps) {
       const [isExporting, setIsExporting] = useState(false);
 
-      if (concepts.length === 0) return null;
+      // Se non c'è nulla, non renderizzare
+      if (!concepts || concepts.length === 0) return null;
+
+      // Converte Concept[] -> string[] per il PDF (bullet-friendly)
+      const conceptsForPdf: string[] = useMemo(() => {
+            return concepts
+                  .map((c) => {
+                        const t = (c?.title ?? "").trim();
+                        const d = (c?.description ?? "").trim();
+
+                        if (t && d) return `${t}: ${d}`;
+                        if (t) return t;
+                        if (d) return d;
+                        return "";
+                  })
+                  .filter(Boolean);
+      }, [concepts]);
 
       const handleExport = async () => {
             setIsExporting(true);
             try {
-                  await exportConceptsToPdf(title, artist, null, 'concepts-export-area');
+                  await exportConceptsToPdf(title, artist, year, conceptsForPdf);
             } catch (error) {
                   console.error("PDF Export failed", error);
-                  alert("Si è verificato un errore durante l'esportazione in PDF.");
+                  const msg = error instanceof Error ? error.message : "Errore sconosciuto.";
+                  alert(`Si è verificato un errore durante l'esportazione in PDF: ${msg}`);
             } finally {
                   setIsExporting(false);
             }
@@ -38,15 +56,12 @@ export function ConceptDisplay({ concepts, title, artist }: ConceptDisplayProps)
                   <div className="flex justify-end mb-6">
                         <Button
                               onClick={handleExport}
-                              disabled={isExporting}
+                              disabled={isExporting || conceptsForPdf.length === 0}
                               variant="outline"
                               className="flex items-center gap-2 border-accent/20 hover:bg-accent/5 text-accent"
+                              title={conceptsForPdf.length === 0 ? "Nessun contenuto da esportare" : "Esporta PDF"}
                         >
-                              {isExporting ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                    <FileDown className="h-4 w-4" />
-                              )}
+                              {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
                               {isExporting ? "Generazione PDF..." : "Salva come PDF"}
                         </Button>
                   </div>
@@ -68,9 +83,7 @@ export function ConceptDisplay({ concepts, title, artist }: ConceptDisplayProps)
                                                 <CardTitle className="text-xl">{concept.title}</CardTitle>
                                           </CardHeader>
                                           <CardContent>
-                                                <p className="text-sm leading-relaxed text-muted-foreground">
-                                                      {concept.description}
-                                                </p>
+                                                <p className="text-sm leading-relaxed text-muted-foreground">{concept.description}</p>
                                           </CardContent>
                                     </Card>
                               </motion.div>
@@ -79,3 +92,4 @@ export function ConceptDisplay({ concepts, title, artist }: ConceptDisplayProps)
             </div>
       );
 }
+
