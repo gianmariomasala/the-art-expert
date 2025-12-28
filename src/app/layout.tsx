@@ -3,15 +3,19 @@ import { Inter, Playfair_Display } from 'next/font/google';
 import './globals.css';
 import { cn } from '@/lib/utils';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+});
+
 const playfair = Playfair_Display({
   subsets: ['latin'],
   variable: '--font-playfair',
 });
 
 export const metadata: Metadata = {
-  title: 'Art Expert Concepts',
-  description: 'Deep expert analysis of artworks.',
+  title: 'The Art Expert',
+  description: 'Discover meanings behind masterpieces.',
 };
 
 export default function RootLayout({
@@ -20,16 +24,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={cn(
-          'min-h-screen bg-background font-sans text-foreground antialiased',
-          inter.variable,
-          playfair.variable
-        )}
-      >
-        {children}
-      </body>
+    <html lang="en" className={cn(inter.variable, playfair.variable)}>
+      <body>{children}</body>
     </html>
   );
 }
+
