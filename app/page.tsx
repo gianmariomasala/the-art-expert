@@ -1,60 +1,114 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { exportConceptsToPdf } from "../src/lib/pdf-export";
 import styles from "./page.module.css";
+
+type SuggestResponse = {
+  concepts: string[] | string;
+  year?: string | null;
+};
+
+type LookupResponse =
+  | { author?: string; titles?: string[] }
+  | { error?: string };
 
 export default function Home() {
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
+
   const [concepts, setConcepts] = useState<string[] | null>(null);
   const [certifiedYear, setCertifiedYear] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
+  const [lookupLoading, setLookupLoading] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+
   const [suggestedTitles, setSuggestedTitles] = useState<string[]>([]);
 
-  // Function to lookup Author from Title
+  const canSubmit = useMemo(() => title.trim().length > 0 && !loading, [title, loading]);
+  const canExport = useMemo(() => (concepts?.length ?? 0) > 0 && !loading, [concepts, loading]);
+
+  // --- Lookup Author from Title (on blur) ---
   const handleTitleBlur = async () => {
-    if (title && !author) {
-      console.log("Looking up author for:", title);
-      try {
-        const res = await fetch("/api/lookup", {
-          method: "POST",
-          body: JSON.stringify({ title }),
-        });
-        const data = await res.json();
-        console.log("Lookup result:", data);
-        if (data.author && data.author !== "Unknown") {
-          setAuthor(data.author);
-        }
-      } catch (e) {
-        console.error("Lookup failed", e);
+    const t = title.trim();
+    if (!t) return;
+    if (author.trim()) return;
+
+    setLookupLoading(true);
+    setLookupError(null);
+
+    try {
+      const res = await fetch("/api/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: t }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Lookup failed");
       }
+
+      const data = (await res.json()) as LookupResponse;
+
+      if ("author" in data && data.author && data.author !== "Unknown") {
+        setAuthor(data.author);
+      }
+    } catch (e) {
+      setLookupError(e instanceof Error ? e.message : "Lookup failed");
+    } finally {
+      setLookupLoading(false);
     }
   };
 
-  // Function to lookup Titles from Author
+  // --- Lookup Titles from Author (on blur) ---
   const handleAuthorBlur = async () => {
-    if (author) {
-      console.log("Looking up titles for:", author);
-      try {
-        const res = await fetch("/api/lookup", {
-          method: "POST",
-          body: JSON.stringify({ author }),
-        });
-        const data = await res.json();
-        console.log("Lookup result:", data);
-        if (data.titles && Array.isArray(data.titles)) {
-          setSuggestedTitles(data.titles);
-        }
-      } catch (e) {
-        console.error("Lookup failed", e);
+    const a = author.trim();
+    if (!a) return;
+
+    setLookupLoading(true);
+    setLookupError(null);
+
+    try {
+      const res = await fetch("/api/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ author: a }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Lookup failed");
       }
+
+      const data = (await res.json()) as LookupResponse;
+
+      if ("titles" in data && Array.isArray(data.titles)) {
+        setSuggestedTitles(data.titles.slice(0, 12));
+      }
+    } catch (e) {
+      setLookupError(e instanceof Error ? e.message : "Lookup failed");
+    } finally {
+      setLookupLoading(false);
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
+  // Clear suggestions when author changes manually
+  useEffect(() => {
+    if (!author.trim()) setSuggestedTitles([]);
+  }, [author]);
+
+  // --- Submit / Analyze ---
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+
+    const t = title.trim();
+    const a = author.trim();
+
+    if (!t) return;
 
     setLoading(true);
     setError(null);
@@ -62,27 +116,25 @@ export default function Home() {
     setCertifiedYear(null);
 
     try {
-      const response = await fetch("/api/suggest", {
+      const res = await fetch("/api/suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, author }),
+        body: JSON.stringify({ title: t, author: a }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Something went wrong");
+      if (!res.ok) {
+        // important: avoid JSON parse errors when API returns HTML
+        const txt = await res.text();
+        throw new Error(txt || "Request failed");
       }
 
-      // Ensure concepts is an array
-      if (Array.isArray(data.concepts)) {
-        setConcepts(data.concepts);
-      } else if (typeof data.concepts === 'string') {
-        // Fallback if backend sends string
-        setConcepts([data.concepts]);
-      }
+      const data = (await res.json()) as SuggestResponse;
 
-      setCertifiedYear(data.year);
+      const list =
+        Array.isArray(data.concepts) ? data.concepts : typeof data.concepts === "string" ? [data.concepts] : [];
+
+      setConcepts(list);
+      setCertifiedYear(data.year ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch");
     } finally {
@@ -90,23 +142,39 @@ export default function Home() {
     }
   };
 
+  const handleExport = async () => {
+    if (!canExport) return;
+
+    try {
+      await exportConceptsToPdf(
+        title.trim(),
+        author.trim() || "Unknown",
+        certifiedYear,
+        "concepts-container"
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "PDF export failed");
+    }
+  };
+
   return (
     <div className={styles.page}>
       <main className={styles.main}>
-        <div>
-          <h1 className={styles.title}>TheArtExpert</h1>
-          <p className={styles.subtitle}>Discover meanings behind masterpieces</p>
-        </div>
+        <header className={styles.hero}>
+          <h1 className={styles.brand}>TheArtExpert</h1>
+          <p className={styles.tagline}>Discover meanings behind masterpieces</p>
+        </header>
 
-        <div className={styles.card}>
-          <form onSubmit={handleSubmit} className={styles.inputGroup}>
-            <label htmlFor="artwork-title" className={styles.label}>
+        <section className={styles.card}>
+          <form onSubmit={handleSubmit} className={styles.form}>
+            <label className={styles.label} htmlFor="artwork-title">
               Artwork Title (Music, Book, Movie, Painting...)
             </label>
+
             <input
               id="artwork-title"
-              type="text"
               className={styles.input}
+              type="text"
               placeholder="e.g. Nocturne Op. 9 No. 2"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -115,64 +183,80 @@ export default function Home() {
               list="suggested-titles"
               required
             />
+
             <datalist id="suggested-titles">
               {suggestedTitles.map((t, i) => (
-                <option key={i} value={t} />
+                <option key={`${t}-${i}`} value={t} />
               ))}
             </datalist>
 
-            <label htmlFor="artwork-author" className={styles.label}>
+            <label className={styles.label} htmlFor="artwork-author">
               Creator/Author (Optional)
             </label>
+
             <input
               id="artwork-author"
-              type="text"
               className={styles.input}
+              type="text"
               placeholder="e.g. Frédéric Chopin"
               value={author}
               onChange={(e) => setAuthor(e.target.value)}
               onBlur={handleAuthorBlur}
               disabled={loading}
             />
+
+            <button
+              type="submit"
+              className={styles.primaryButton}
+              disabled={!canSubmit}
+            >
+              {loading ? "Analisi in corso..." : "Descrivi e Analizza"}
+            </button>
+
+            {(lookupLoading || lookupError) && (
+              <div className={styles.hintRow}>
+                {lookupLoading ? (
+                  <span className={styles.hint}>Looking up…</span>
+                ) : (
+                  <span className={styles.hintError}>{lookupError}</span>
+                )}
+              </div>
+            )}
+
+            {error && <div className={styles.error}>{error}</div>}
           </form>
-
-          <button
-            type="submit"
-            className={styles.button}
-            onClick={handleSubmit}
-            disabled={loading || !title.trim()}
-          >
-            {loading ? "Analisi in corso..." : "Descrivi e Analizza"}
-          </button>
-
-          {error && <div className={styles.error}>{error}</div>}
-        </div>
+        </section>
 
         {concepts && (
-          <div className={styles.result}>
-            <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className={styles.resultTitle} style={{ margin: 0 }}>Concepts</span>
-              {certifiedYear && (
-                <span style={{
-                  background: '#f97316',
-                  color: 'white',
-                  padding: '2px 8px',
-                  borderRadius: '4px',
-                  fontSize: '0.8rem',
-                  fontWeight: 'bold'
-                }}>
-                  {certifiedYear}
-                </span>
-              )}
+          <section className={styles.results}>
+            <div className={styles.resultsHeader}>
+              <div className={styles.resultsTitle}>
+                <span>Concepts</span>
+                <span className={styles.badge}>{concepts.length}</span>
+                {certifiedYear && <span className={styles.yearPill}>{certifiedYear}</span>}
+              </div>
+
+              <button
+                type="button"
+                className={styles.exportInline}
+                onClick={handleExport}
+                disabled={!canExport}
+                title={canExport ? "Export concepts to PDF" : "No concepts to export"}
+              >
+                Export PDF
+              </button>
             </div>
-            <ul className={styles.conceptsList} style={{ paddingLeft: '20px', margin: 0 }}>
-              {concepts.map((concept, index) => (
-                <li key={index} style={{ marginBottom: '12px', lineHeight: '1.6', color: '#e5e7eb' }}>
-                  {concept}
-                </li>
-              ))}
-            </ul>
-          </div>
+
+            <div id="concepts-container">
+              <ul className={styles.conceptsList}>
+                {concepts.map((c, i) => (
+                  <li key={i} className={styles.conceptItem}>
+                    {c}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
         )}
       </main>
     </div>
