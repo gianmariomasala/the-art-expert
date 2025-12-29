@@ -1,92 +1,141 @@
 import jsPDF from "jspdf";
 
-function safeFileName(name: string) {
-      return (name || "export")
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/gi, "-")
-            .replace(/(^-|-$)/g, "");
-}
-
-export function exportConceptsToPdf(
+/**
+ * Export concepts to a text-based PDF (selectable text).
+ * You can pass either:
+ * - elementId: string  -> it will read <li> from DOM
+ * - concepts: string[] -> it will use the array directly
+ */
+export const exportConceptsToPdf = async (
       title: string,
       author: string,
       year: string | null,
-      concepts: string[]
-) {
-      console.log("✅ exportConceptsToPdf ARRAY version running", {
-            title,
-            conceptsLen: concepts?.length,
-      });
-      if (!title?.trim()) throw new Error("Missing title");
-      if (!Array.isArray(concepts) || concepts.length === 0) throw new Error("No concepts to export");
+      source: string | string[]
+) => {
+      // Small delay to let layout settle (fonts, rendering)
+      await new Promise((r) => setTimeout(r, 200));
 
-      const doc = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
+      // 1) Build concepts array from source
+      let concepts: string[] = [];
 
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
+      if (Array.isArray(source)) {
+            concepts = source.map((s) => String(s || "").trim()).filter(Boolean);
+      } else {
+            const elementId = source;
+            const root = document.getElementById(elementId);
+            if (!root) throw new Error(`Element #${elementId} not found`);
 
-      const marginX = 48;
-      const marginTop = 56;
-      const marginBottom = 56;
-      const contentWidth = pageWidth - marginX * 2;
-
-      const bodyFontSize = 11;
-      const lineHeight = 16;
-
-      const headerY = 36;
-
-      const drawHeader = () => {
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(15);
-            doc.text(title, marginX, headerY);
-
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(9);
-            const meta = [author, year ? String(year) : null].filter(Boolean).join(" · ");
-            if (meta) doc.text(meta, marginX, headerY + 16);
-
-            doc.setDrawColor(220);
-            doc.setLineWidth(0.6);
-            doc.line(marginX, headerY + 26, pageWidth - marginX, headerY + 26);
-      };
-
-      const maxY = pageHeight - marginBottom;
-      const startYFirst = marginTop + 24;
-      const startYOther = marginTop;
-
-      const ensureSpace = (y: number, needed: number) => {
-            if (y + needed <= maxY) return y;
-            doc.addPage();
-            return startYOther;
-      };
-
-      drawHeader();
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(bodyFontSize);
-
-      let y = startYFirst;
-
-      for (const conceptRaw of concepts) {
-            const concept = (conceptRaw || "").replace(/\r/g, "").trim();
-            if (!concept) continue;
-
-            const conceptText = concept.replace(/\n{2,}/g, "\n").trim();
-
-            const bullet = "•";
-            const bulletIndent = 14;
-            const textX = marginX + bulletIndent;
-
-            const lines = doc.splitTextToSize(conceptText, contentWidth - bulletIndent);
-            const blockHeight = lines.length * lineHeight + 12;
-
-            y = ensureSpace(y, blockHeight);
-
-            doc.text(bullet, marginX, y);
-            doc.text(lines, textX, y, { baseline: "top" });
-
-            y += lines.length * lineHeight + 12;
+            const liNodes = Array.from(root.querySelectorAll("li"));
+            concepts = liNodes.map((li) => (li.textContent || "").trim()).filter(Boolean);
       }
 
-      doc.save(`${safeFileName(title)}.pdf`);
-}
+      if (concepts.length === 0) throw new Error("No concepts to export");
+
+      // --- PDF setup (A4, mm) ---
+      const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+
+      // Layout constants
+      const marginX = 16;
+      const marginTop = 18;
+      const marginBottom = 16;
+      const contentW = pageW - marginX * 2;
+
+      // Typography
+      const titleSize = 18;
+      const metaSize = 11;
+      const bodySize = 11;
+
+      let y = marginTop;
+
+      const addPageIfNeeded = (neededHeight: number) => {
+            if (y + neededHeight > pageH - marginBottom) {
+                  doc.addPage();
+                  y = marginTop;
+            }
+      };
+
+      const sanitizeFilename = (s: string) =>
+            s
+                  .toLowerCase()
+                  .replace(/[^\w\s-]/g, "")
+                  .trim()
+                  .replace(/\s+/g, "-")
+                  .slice(0, 80);
+
+      // --- Header ---
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(titleSize);
+
+      const safeTitle = (title || "Untitled").trim();
+      const safeAuthor = (author || "").trim();
+      const safeYear = (year || "").trim();
+
+      const titleLines = doc.splitTextToSize(safeTitle, contentW);
+      addPageIfNeeded(titleLines.length * 8);
+      doc.text(titleLines, marginX, y);
+      y += titleLines.length * 8;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(metaSize);
+
+      const metaParts: string[] = [];
+      if (safeAuthor) metaParts.push(safeAuthor);
+      if (safeYear) metaParts.push(safeYear);
+
+      if (metaParts.length) {
+            addPageIfNeeded(8);
+            doc.text(metaParts.join(" • "), marginX, y);
+            y += 8;
+      }
+
+      // Divider
+      addPageIfNeeded(6);
+      doc.setDrawColor(200);
+      doc.setLineWidth(0.3);
+      doc.line(marginX, y, pageW - marginX, y);
+      y += 6;
+
+      // Section title
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      addPageIfNeeded(8);
+      doc.text("Concepts", marginX, y);
+      y += 8;
+
+      // --- Body bullets ---
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(bodySize);
+
+      const bulletIndent = 4;
+      const bulletSymbolX = marginX;
+      const textX = marginX + bulletIndent;
+      const lineHeight = 6;
+
+      for (const c of concepts) {
+            const lines = doc.splitTextToSize(c, contentW - bulletIndent);
+            const needed = lines.length * lineHeight + 3;
+            addPageIfNeeded(needed);
+
+            doc.text("•", bulletSymbolX, y);
+            doc.text(lines, textX, y);
+
+            y += lines.length * lineHeight + 3;
+      }
+
+      // Footer (page numbers)
+      const pageCount = doc.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setFontSize(9);
+            doc.setTextColor(130);
+            doc.text(`${i} / ${pageCount}`, pageW - marginX, pageH - 8, {
+                  align: "right",
+            });
+      }
+
+      const fileBase = sanitizeFilename(safeTitle || "the-art-expert");
+      doc.save(`${fileBase}.pdf`);
+};
 
