@@ -12,8 +12,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata = {
-  title: "The Art Expert",
+export const metadata: Metadata = {
+  title: "TheArtExpert",
   description: "Discover meanings behind masterpieces",
 };
 
